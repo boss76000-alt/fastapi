@@ -110,6 +110,9 @@ def clearline_bridge(item: IngestItem = Body(...)):
 @app.get("/")
 def root():
     return {"greeting": "Hello, World!", "message": "Hedge Fund backend is live."}
+@app.get("/")
+def root():
+    return {"greeting": "Hello, World!", "message": "Hedge Fund backend is live."}
 
 @app.get("/clearline-bridge")
 def clearline_bridge():
