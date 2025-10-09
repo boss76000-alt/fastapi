@@ -53,3 +53,11 @@ def analyze_text(payload: TextPayload = Body(...)):
         "score": s,
         "decision": "POSITIVE" if s > 0 else "NEGATIVE" if s < 0 else "NEUTRAL"
     }
+
+@app.get("/clearline-bridge")
+def clearline_status():
+    return {
+        "status": "online",
+        "system": "ClearLine API",
+        "message": "Bridge active and ready"
+    }
