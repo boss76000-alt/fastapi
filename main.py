@@ -1,74 +1,75 @@
-# === Hedge Fund AI Core (MarketAux-only edition) ===
-# Simplified, stable, self-contained base
-# Author: GPT-5 + Deaga
+import os, datetime as dt
+from typing import List, Dict, Any
+import httpx
+from fastapi import FastAPI, HTTPException, Query
 
-import os
-import requests
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-import logging
+API_BASE = "https://api.marketaux.com/v1"
+TOKEN = os.getenv("MARKETAUX_API_TOKEN")
 
-app = FastAPI(title="Hedge Fund AI – MarketAux Core")
+app = FastAPI(title="Hedge Fund API", version="0.2.0",
+              description="Signals + scanner + alerts (Marketaux)")
 
-# === ENV ===
-MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY")
+def need_token():
+    if not TOKEN:
+        raise HTTPException(status_code=500, detail="MARKETAUX_API_TOKEN hiányzik.")
 
-if not MARKETAUX_API_KEY:
-    raise ValueError("⚠️ Missing MARKETAUX_API_KEY in Railway Variables!")
+async def mx_news(symbols: List[str], limit: int = 5, lang: str = "en") -> Dict[str, Any]:
+    need_token()
+    params = {
+        "symbols": ",".join(symbols),
+        "filter_entities": "true",
+        "limit": str(limit),
+        "language": lang,
+        "api_token": TOKEN,
+    }
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(f"{API_BASE}/news/all", params=params)
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
 
-# === LOGGER ===
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("hedgefund")
-
-# === HEALTH ===
-@app.get("/health")
-def health():
-    return {"status": "running", "provider": "MarketAux", "key_present": bool(MARKETAUX_API_KEY)}
-
-# === SIMPLE TEST ===
-@app.get("/test")
-def test():
-    return {"msg": "✅ Hedge Fund AI core online (MarketAux mode)"}
-
-# === FETCH LATEST NEWS ===
-@app.get("/news/{symbol}")
-def get_news(symbol: str):
-    """Fetch recent MarketAux news for a given ticker"""
-    try:
-        url = (
-            f"https://api.marketaux.com/v1/news/all"
-            f"?symbols={symbol.upper()}&filter_entities=true&language=en&limit=5"
-            f"&api_token={MARKETAUX_API_KEY}"
-        )
-        r = requests.get(url, timeout=10)
-        data = r.json()
-
-        # sanity check
-        if "data" not in data:
-            return JSONResponse(status_code=502, content={"error": "No data returned", "raw": data})
-
-        parsed = [
-            {
-                "title": item.get("title"),
-                "summary": item.get("description"),
-                "source": item.get("source"),
-                "sentiment": item.get("overall_sentiment_label"),
-                "published_at": item.get("published_at"),
-            }
-            for item in data["data"]
-        ]
-
-        return {"symbol": symbol.upper(), "count": len(parsed), "news": parsed}
-
-    except Exception as e:
-        logger.exception("Error fetching news")
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-# === ROOT ===
 @app.get("/")
 def root():
     return {
-        "app": "Hedge Fund AI (MarketAux-only)",
-        "status": "✅ ready",
-        "endpoints": ["/test", "/health", "/news/{symbol}"],
+        "greeting": "Hello, Hedge Fund!",
+        "message": "FastAPI fut. Nézd meg a /docs oldalt a próbákhoz.",
+        "endpoints": {"health": "/health", "scan": "/scan", "alerts_test": "/alerts/test"},
+        "version": "0.2.0"
     }
+
+@app.get("/health")
+def health():
+    return {"status": "running", "marketaux_key_present": bool(TOKEN)}
+
+@app.get("/scan")
+async def scan(
+    symbols: str = Query(..., description="Pl.: AAPL,MSFT,BTC/USD,EUR/USD"),
+    limit: int = 3,
+    language: str = "en"
+):
+    """Egyszerű hír-szkenner Marketaux-ról, sentiment + forrásokkal."""
+    syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    data = await mx_news(syms, limit=limit, lang=language)
+
+    items = []
+    for art in data.get("data", []):
+        items.append({
+            "title": art.get("title"),
+            "url": art.get("url"),
+            "published_at": art.get("published_at"),
+            "source": art.get("source"),
+            "sentiment": art.get("sentiment", None),
+            "symbols": [e.get("symbol") for e in art.get("entities", []) if e.get("symbol")]
+        })
+
+    summary = {
+        "counts": {"items": len(items)},
+        "interval": "news",
+        "generated_at": dt.datetime.utcnow().isoformat() + "Z"
+    }
+    return {"summary": summary, "items": items}
+
+@app.get("/alerts/test")
+def alerts_test():
+    # ide később jöhet Slack webhook, most csak ping
+    return {"ok": True, "msg": "alerts test"}
