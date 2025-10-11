@@ -1,18 +1,13 @@
-# =========================================================
-# Hedge Fund API v0.4.1 – EMAIL TEST + CORE
-# =========================================================
-
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-import os, smtplib, ssl
+# v0.4.1 – Hedge Fund API (health + email test)
+import os, ssl, smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from fastapi import FastAPI
 
-# --- FastAPI inicializálás ---
 app = FastAPI(title="Hedge Fund API", version="0.4.1")
 
-# --- Email küldő funkció ---
-def send_test_email():
+# --------- Helpers ----------
+def try_send_email():
     smtp_server = os.getenv("SMTP_HOST", "smtp.gmail.com")
     port = int(os.getenv("SMTP_PORT", "587"))
     sender_email = os.getenv("SMTP_USER")
@@ -20,61 +15,47 @@ def send_test_email():
     receiver_email = os.getenv("ALERT_TO", sender_email)
     subject_prefix = os.getenv("SUBJECT_PREFIX", "[HedgeFund]")
 
+    if not sender_email or not password or not receiver_email:
+        return False, "Missing SMTP_USER/SMTP_PASS/ALERT_TO"
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"{subject_prefix} Email Test v0.4.1"
     msg["From"] = os.getenv("EMAIL_FROM", sender_email)
     msg["To"] = receiver_email
 
-    text = """✅ Hedge Fund API v0.4.1 teszt sikeresen elindult!
-Ez az e-mail igazolja, hogy az SMTP kapcsolat működik.
-"""
+    text = "✅ Hedge Fund API v0.4.1 – SMTP teszt.\nHa ezt látod, a küldés ok."
     html = """\
-    <html>
-      <body style="font-family: monospace; background-color:#0f111a; color:#c8e1ff;">
-        <h2>✅ Hedge Fund API v0.4.1 – Email Test</h2>
-        <p>Az SMTP modul sikeresen inicializálva.<br>
-        <b>Status:</b> RUNNING 🟢<br>
-        <b>Layer:</b> CORE-ALERT / MAIL PIPELINE</p>
-        <hr>
-        <p style="font-size:12px; color:#888;">© Hedge Fund Core | v0.4.1</p>
-      </body>
-    </html>
-    """
-
+    <html><body style="font-family:monospace;background:#0f111a;color:#c8e1ff">
+      <h2>✅ Hedge Fund API v0.4.1 – Email Test</h2>
+      <p><b>Status:</b> RUNNING 🟢<br><b>Layer:</b> CORE-ALERT / MAIL PIPELINE</p>
+    </body></html>"""
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
+    context = ssl.create_default_context()
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP(smtp_server, port, timeout=20) as server:
+        with smtplib.SMTP(smtp_server, port, timeout=10) as server:
             server.starttls(context=context)
             server.login(sender_email, password)
             server.sendmail(sender_email, receiver_email, msg.as_string())
-        print("✅ Email sikeresen elküldve!")
-        return True
+        return True, "sent"
     except Exception as e:
-        print("❌ Hiba az e-mail küldés során:", e)
-        return False
+        return False, str(e)
 
-# --- Endpoint: teszt email ---
-@app.get("/alerts/email_test")
-def alerts_email_test():
-    ok = send_test_email()
-    return JSONResponse({"ok": bool(ok), "endpoint": "/alerts/email_test"})
-
-# --- Endpoint: API health ---
-@app.get("/health")
-def health():
-    return {"status": "running", "marketaux_key_present": bool(os.getenv("MARKETAUX_API_KEY"))}
-
-# --- Root info ---
+# --------- Endpoints ----------
 @app.get("/")
 def root():
     return {
         "greeting": "Hello, Hedge Fund!",
         "message": "FastAPI fut v0.4.1 alatt – Email modul aktív.",
-        "endpoints": {
-            "health": "/health",
-            "email_test": "/alerts/email_test"
-        }
+        "endpoints": {"health": "/health", "email_test": "/alerts/email_test"},
     }
+
+@app.get("/health")
+def health():
+    return {"status": "running", "marketaux_key_present": bool(os.getenv("MARKETAUX_API_KEY"))}
+
+@app.get("/alerts/email_test")
+def alerts_email_test():
+    ok, error = try_send_email()
+    return {"ok": bool(ok), "endpoint": "/alerts/email_test", "error": None if ok else error}
