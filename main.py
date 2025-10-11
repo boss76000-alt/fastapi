@@ -1,4 +1,4 @@
-from email_test import send_test_email 
+from EMAIL_TEST import send_test_email
 
 # v0.4.1 – Hedge Fund EMAIL TEST
 import smtplib, ssl, os
@@ -45,9 +45,7 @@ try:
         print("✅ Email sikeresen elküldve!")
 except Exception as e:
     print("❌ Hiba az e-mail küldés során:", e)
-
 @app.get("/alerts/email_test")
 def alerts_email_test():
-ok = send_test_email()
-return {"ok": bool(ok), "endpoint": "/alerts/email_test"}
+    return {"ok": bool(send_test_email()), "endpoint": "/alerts/email_test"}
 
