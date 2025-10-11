@@ -1,4 +1,4 @@
-from email_test import send_test_email
+from email_test import send_test_email 
 
 # v0.4.1 – Hedge Fund EMAIL TEST
 import smtplib, ssl, os
