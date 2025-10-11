@@ -122,3 +122,50 @@ async def clearline(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)
+    
+    import asyncio
+
+def grade_signal(delta_pct: float) -> str:
+    # egyszerű küszöbök – később finomítjuk
+    if abs(delta_pct) >= 1.0:
+        return "A"
+    if abs(delta_pct) >= 0.3:
+        return "B"
+    return "C"
+
+@app.get("/scan")
+async def scan(
+    watchlist: str = Query(..., description="Vesszővel elválasztott szimbólumok, pl. AAPL,MSFT,BTC/USD,EUR/USD"),
+    interval: str = Query("1min", pattern="^(1min|5min|15min|30min|1h)$"),
+    top: int = Query(10, ge=1, le=50),
+):
+    """
+    Többszimbólumos gyorsteszt. TwelveData-ról lehúzza az utolsó és az előző gyertyát,
+    kiszámolja a %-os elmozdulást, és A/B/C fokozatot ad.
+    """
+    symbols = [s.strip() for s in watchlist.split(",") if s.strip()]
+    if not symbols:
+        raise HTTPException(status_code=400, detail="Empty watchlist")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        tasks = [fetch_latest_from_twelvedata(client, s, interval) for s in symbols]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    rows = []
+    for sym, res in zip(symbols, results):
+        if isinstance(res, Exception) or res is None:
+            rows.append({"symbol": sym, "error": True})
+            continue
+        delta_pct = res.get("delta_pct", 0.0)
+        rows.append({
+            "symbol": sym,
+            "interval": interval,
+            "delta_pct": round(delta_pct, 6),
+            "grade": grade_signal(delta_pct),
+            "last": res.get("last"),
+            "previous": res.get("previous"),
+        })
+
+    # rendezzük abszolút %-ra és vágjuk top N-re
+    rows.sort(key=lambda r: abs(r.get("delta_pct", 0.0)), reverse=True)
+    return {"count": len(rows[:top]), "results": rows[:top]}
