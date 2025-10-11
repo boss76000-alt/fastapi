@@ -68,8 +68,19 @@ async def scan(
         "generated_at": dt.datetime.utcnow().isoformat() + "Z"
     }
     return {"summary": summary, "items": items}
-
 @app.get("/alerts/test")
 def alerts_test():
     # ide később jöhet Slack webhook, most csak ping
     return {"ok": True, "msg": "alerts test"}
+    
+    @app.get("/__envcheck")
+def envcheck():
+    import os
+    val = os.getenv("ecDi6nMhooqr6CXKGEfcvNfNHIhvKETfKwvBSLRG")
+    provider = os.getenv("DATA_PROVIDER")
+    return {
+        "DATA_PROVIDER": provider,
+        "MARKETAUX_API_KEY_present": bool(val),
+        "MARKETAUX_API_KEY_len": (len(val) if val else 0),
+        "MARKETAUX_API_KEY_preview": (val[:6] if val else None)
+    }
