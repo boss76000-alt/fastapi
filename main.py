@@ -1,171 +1,108 @@
 import os
-from typing import Optional, Dict, Any
-
-from fastapi import FastAPI, HTTPException, Query
+from typing import List, Optional, Dict, Any
+from fastapi import FastAPI, Query, HTTPException
 import httpx
 
-APP_NAME = "Hedge Fund API"
-APP_VERSION = "0.1.0"
+app = FastAPI(title="Hedge Fund API", version="0.1.0")
 
-app = FastAPI(title=APP_NAME, version=APP_VERSION)
+TWELVEDATA_KEY = os.getenv("TWELVEDATA_API_KEY")
 
+BASE_INFO = {
+    "greeting": "Hello, Hedge Fund!",
+    "message": "FastAPI fut. Nézd meg a /docs oldalt a próbákhoz.",
+    "endpoints": {
+        "docs": "/docs",
+        "health": "/health",
+        "clearline": "/clearline?symbol=AAPL&interval=1min",
+        "scan": "/scan?symbols=AAPL,MSFT,BTC/USD,EUR/USD&interval=1min&a_thr=0.5&b_thr=0.2",
+    },
+}
 
-@app.get("/", summary="Root")
-async def root() -> Dict[str, Any]:
-    """
-    Alap üdvözlő endpoint. Itt szabadon módosíthatod az üzenetet.
-    """
-    return {
-        "greeting": "Hello, Hedge Fund!",
-        "message": "FastAPI fut. Nézd meg a /docs oldalt a próbához.",
-        "endpoints": {
-            "docs": "/docs",
-            "health": "/health",
-            "clearline": "/clearline?symbol=AAPL&interval=1min",
-        },
-        "version": APP_VERSION,
-    }
+@app.get("/")
+def root():
+    return BASE_INFO
 
+@app.get("/health")
+def health():
+    return {"status": "running", "twelvedata_key_present": bool(TWELVEDATA_KEY)}
 
-@app.get("/health", summary="Health")
-async def health() -> Dict[str, Any]:
-    """
-    Egyszerű egészségügyi ellenőrzés.
-    """
-    return {
-        "status": "running",
-        "twelvedata_key_present": bool(os.getenv("TWELVEDATA_API_KEY")),
-    }
+async def fetch_last_two(symbol: str, interval: str) -> Dict[str, Any]:
+    if not TWELVEDATA_KEY:
+        raise HTTPException(status_code=500, detail="Missing TWELVEDATA_API_KEY")
 
-
-@app.get("/clearline", summary="Clearline")
-async def clearline(
-    symbol: str = Query(..., description="Ticker, pl. AAPL vagy BTC/USD"),
-    interval: str = Query(
-        "1min",
-        description="TwelveData interval (1min, 5min, 15min, 1h, 1day, ...)",
-    ),
-) -> Dict[str, Any]:
-    """
-    Gyors 'clearline' végpont: TwelveData time_series-ből lekéri az utolsó két
-    gyertyát, és visszaadja a legutóbbi zárót, valamint a változást.
-    """
-    api_key = os.getenv("TWELVEDATA_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Hiányzik a TWELVEDATA_API_KEY változó a Railway 'Variables' alatt.",
-        )
-
-    url = "https://api.twelvedata.com/time_series"
     params = {
         "symbol": symbol,
         "interval": interval,
-        "outputsize": 2,  # utolsó két gyertya a változáshoz
-        "format": "JSON",
-        "apikey": api_key,
+        "outputsize": 2,
+        "apikey": TWELVEDATA_KEY,
     }
-
-    async with httpx.AsyncClient(timeout=15) as client:
+    url = "https://api.twelvedata.com/time_series"
+    async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(url, params=params)
-    data = r.json()
-
-    # TwelveData hibaüzenet kezelése
-    if "status" in data and data.get("status") == "error":
-        raise HTTPException(status_code=400, detail=data.get("message", "API error"))
-
-    ts = data.get("values") or data.get("data") or data.get("time_series") or data.get("values")
-    if not ts and "values" in data:
-        ts = data["values"]
-    if not ts:
-        # standard struktúra: {"meta": {...}, "values": [ {datetime, close, ...}, ... ] }
-        ts = data.get("values", [])
-
-    if not isinstance(ts, list) or len(ts) == 0:
-        raise HTTPException(status_code=404, detail="Nincs elérhető adat erre a kérésre.")
-
-    # legutóbbi és előző záró
-    last = ts[0]
-    prev = ts[1] if len(ts) > 1 else None
-
+        data = r.json()
+    if "values" not in data:
+        # TD hiba-üzenet továbbítása (rate limit / invalid symbol stb.)
+        return {"symbol": symbol, "error": data}
     try:
-        last_close = float(last.get("close"))
-        prev_close = float(prev.get("close")) if prev else None
-    except Exception:
-        raise HTTPException(status_code=500, detail="Váratlan adatformátum a TwelveData-tól.")
+        last = data["values"][0]
+        prev = data["values"][1]
+        last_c = float(last["close"])
+        prev_c = float(prev["close"])
+        delta = last_c - prev_c
+        delta_pct = (delta / prev_c) * 100 if prev_c else 0.0
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "last": {"datetime": last["datetime"], "close": last_c},
+            "previous": {"datetime": prev["datetime"], "close": prev_c},
+            "delta": delta,
+            "delta_pct": delta_pct,
+            "source": "twelvedata",
+        }
+    except Exception as e:
+        return {"symbol": symbol, "error": str(e), "raw": data}
 
-    delta = None
-    delta_pct = None
-    if prev_close is not None:
-        delta = last_close - prev_close
-        if prev_close != 0:
-            delta_pct = (delta / prev_close) * 100.0
+@app.get("/clearline")
+async def clearline(symbol: str = Query(...), interval: str = Query("1min")):
+    return await fetch_last_two(symbol, interval)
 
-    return {
-        "symbol": symbol,
-        "interval": interval,
-        "last": {
-            "datetime": last.get("datetime") or last.get("time") or last.get("timestamp"),
-            "close": last_close,
-        },
-        "previous": {
-            "datetime": prev.get("datetime") if prev else None,
-            "close": prev_close,
-        },
-        "delta": delta,
-        "delta_pct": delta_pct,
-        "source": "twelvedata",
-    }
-
-
-# Opcionális: lokális futtatáshoz (Railway-en nem szükséges)
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)
-    
-    import asyncio
-
-def grade_signal(delta_pct: float) -> str:
-    # egyszerű küszöbök – később finomítjuk
-    if abs(delta_pct) >= 1.0:
+def grade(delta_pct: float, a_thr: float, b_thr: float) -> str:
+    abs_pct = abs(delta_pct)
+    if abs_pct >= a_thr:
         return "A"
-    if abs(delta_pct) >= 0.3:
+    if abs_pct >= b_thr:
         return "B"
     return "C"
 
 @app.get("/scan")
 async def scan(
-    watchlist: str = Query(..., description="Vesszővel elválasztott szimbólumok, pl. AAPL,MSFT,BTC/USD,EUR/USD"),
-    interval: str = Query("1min", pattern="^(1min|5min|15min|30min|1h)$"),
-    top: int = Query(10, ge=1, le=50),
+    symbols: Optional[str] = Query(None, description="Vesszővel elválasztott watchlist"),
+    interval: str = Query("1min"),
+    a_thr: float = Query(0.5, description="A jelzés küszöb (%, abs)"),
+    b_thr: float = Query(0.2, description="B jelzés küszöb (%, abs)"),
 ):
-    """
-    Többszimbólumos gyorsteszt. TwelveData-ról lehúzza az utolsó és az előző gyertyát,
-    kiszámolja a %-os elmozdulást, és A/B/C fokozatot ad.
-    """
-    symbols = [s.strip() for s in watchlist.split(",") if s.strip()]
-    if not symbols:
-        raise HTTPException(status_code=400, detail="Empty watchlist")
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        tasks = [fetch_latest_from_twelvedata(client, s, interval) for s in symbols]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    rows = []
-    for sym, res in zip(symbols, results):
-        if isinstance(res, Exception) or res is None:
-            rows.append({"symbol": sym, "error": True})
-            continue
-        delta_pct = res.get("delta_pct", 0.0)
-        rows.append({
-            "symbol": sym,
-            "interval": interval,
-            "delta_pct": round(delta_pct, 6),
-            "grade": grade_signal(delta_pct),
-            "last": res.get("last"),
-            "previous": res.get("previous"),
-        })
-
-    # rendezzük abszolút %-ra és vágjuk top N-re
-    rows.sort(key=lambda r: abs(r.get("delta_pct", 0.0)), reverse=True)
-    return {"count": len(rows[:top]), "results": rows[:top]}
+    # Alap watchlist, ha nem adsz meg sajátot
+    default_list = ["AAPL", "MSFT", "BTC/USD", "EUR/USD"]
+    watch = [s.strip() for s in (symbols.split(",") if symbols else default_list) if s.strip()]
+    # Párhuzamos lekérés
+    import asyncio
+    tasks = [fetch_last_two(s, interval) for s in watch]
+    results = await asyncio.gather(*tasks)
+    # Jelölés + rendezés abs(delta_pct) szerint
+    enriched = []
+    for r in results:
+        if "delta_pct" in r:
+            r["grade"] = grade(r["delta_pct"], a_thr, b_thr)
+        enriched.append(r)
+    enriched.sort(key=lambda x: abs(x.get("delta_pct", 0.0)), reverse=True)
+    summary = {
+        "counts": {
+            "A": sum(1 for x in enriched if x.get("grade") == "A"),
+            "B": sum(1 for x in enriched if x.get("grade") == "B"),
+            "C": sum(1 for x in enriched if x.get("grade") == "C"),
+            "errors": sum(1 for x in enriched if "error" in x),
+        },
+        "interval": interval,
+        "thresholds": {"A": a_thr, "B": b_thr},
+    }
+    return {"summary": summary, "items": enriched}
