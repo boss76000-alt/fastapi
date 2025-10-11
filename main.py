@@ -1,53 +1,54 @@
-# v0.4.1 – Hedge Fund API (health + email test)
-import os, ssl, smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+# v0.4.2 – Hedge Fund API (health + email test via RESEND)
+import os
+import requests
 from fastapi import FastAPI
 
-app = FastAPI(title="Hedge Fund API", version="0.4.1")
+app = FastAPI(title="Hedge Fund API", version="0.4.2")
 
-# --------- Helpers ----------
-def try_send_email():
-    smtp_server = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    sender_email = os.getenv("SMTP_USER")
-    password = os.getenv("SMTP_PASS")
-    receiver_email = os.getenv("ALERT_TO", sender_email)
-    subject_prefix = os.getenv("SUBJECT_PREFIX", "[HedgeFund]")
+# ------------ Email (HTTP, Resend) -------------
+def send_email_resend(subject: str, text: str, html: str):
+    api_key = os.getenv("RESEND_API_KEY", "")
+    email_from = os.getenv("EMAIL_FROM", "onboarding@resend.dev")  # teszthez OK
+    email_to = os.getenv("ALERT_TO")
+    if not api_key or not email_to:
+        return False, "Missing RESEND_API_KEY or ALERT_TO"
 
-    if not sender_email or not password or not receiver_email:
-        return False, "Missing SMTP_USER/SMTP_PASS/ALERT_TO"
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"{subject_prefix} Email Test v0.4.1"
-    msg["From"] = os.getenv("EMAIL_FROM", sender_email)
-    msg["To"] = receiver_email
-
-    text = "✅ Hedge Fund API v0.4.1 – SMTP teszt.\nHa ezt látod, a küldés ok."
-    html = """\
-    <html><body style="font-family:monospace;background:#0f111a;color:#c8e1ff">
-      <h2>✅ Hedge Fund API v0.4.1 – Email Test</h2>
-      <p><b>Status:</b> RUNNING 🟢<br><b>Layer:</b> CORE-ALERT / MAIL PIPELINE</p>
-    </body></html>"""
-    msg.attach(MIMEText(text, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    context = ssl.create_default_context()
     try:
-        with smtplib.SMTP(smtp_server, port, timeout=10) as server:
-            server.starttls(context=context)
-            server.login(sender_email, password)
-            server.sendmail(sender_email, receiver_email, msg.as_string())
-        return True, "sent"
+        r = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            json={
+                "from": email_from,
+                "to": [email_to],
+                "subject": subject,
+                "text": text,
+                "html": html,
+            },
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            return True, "sent"
+        return False, f"HTTP {r.status_code}: {r.text[:200]}"
     except Exception as e:
         return False, str(e)
 
-# --------- Endpoints ----------
+def email_test():
+    prefix = os.getenv("SUBJECT_PREFIX", "[HedgeFund]")
+    subject = f"{prefix} Email Test v0.4.2 (RESEND)"
+    text = "✅ Hedge Fund API v0.4.2 – HTTP email teszt (Resend)."
+    html = """<html><body style="font-family:monospace;background:#0f111a;color:#c8e1ff">
+      <h2>✅ Hedge Fund API v0.4.2 – Email Test (Resend)</h2>
+      <p><b>Status:</b> RUNNING 🟢<br><b>Layer:</b> CORE-ALERT / MAIL PIPELINE</p>
+    </body></html>"""
+    return send_email_resend(subject, text, html)
+
+# ------------- Endpoints -------------
 @app.get("/")
 def root():
     return {
         "greeting": "Hello, Hedge Fund!",
-        "message": "FastAPI fut v0.4.1 alatt – Email modul aktív.",
+        "message": "FastAPI fut v0.4.2 alatt – Email modul HTTP-n.",
         "endpoints": {"health": "/health", "email_test": "/alerts/email_test"},
     }
 
@@ -57,5 +58,5 @@ def health():
 
 @app.get("/alerts/email_test")
 def alerts_email_test():
-    ok, error = try_send_email()
-    return {"ok": bool(ok), "endpoint": "/alerts/email_test", "error": None if ok else error}
+    ok, info = email_test()
+    return {"ok": bool(ok), "endpoint": "/alerts/email_test", "provider": "RESEND", "info": info}
