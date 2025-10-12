@@ -40,3 +40,15 @@ def alerts_email_test():
 
     ok, info = send_email_resend(to_email=to_email, subject=subject, html=html)
     return {"ok": ok, "endpoint": "/alerts/email_test", "info": info[:300]}
+    
+    # --- DIAG: e-mail env ellenőrző endpoint (ideiglenes) ---
+@app.get("/debug/email_env")
+def debug_email_env():
+    import os, importlib.util
+    return {
+        "RESEND_API_KEY_present": bool(os.getenv("RESEND_API_KEY")),
+        "EMAIL_FROM": os.getenv("EMAIL_FROM"),
+        "ALERT_TO": os.getenv("ALERT_TO"),
+        "MAIL_PROVIDER": os.getenv("MAIL_PROVIDER", "RESEND"),
+        "httpx_installed": importlib.util.find_spec("httpx") is not None,
+    }
