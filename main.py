@@ -51,4 +51,4 @@ def debug_email_env():
         "ALERT_TO": os.getenv("ALERT_TO"),
         "MAIL_PROVIDER": os.getenv("MAIL_PROVIDER", "RESEND"),
         "httpx_installed": importlib.util.find_spec("httpx") is not None,
-    }
+    } 
