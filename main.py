@@ -1,55 +1,19 @@
-# v0.4.2 – Hedge Fund API (health + email test via RESEND)
-import os
-import requests
+# main.py — Hedge Fund API v0.4.2 (Resend e-mail teszt)
 from fastapi import FastAPI
+from email_resend import send_email_resend
+import os
 
 app = FastAPI(title="Hedge Fund API", version="0.4.2")
 
-# ------------ Email (HTTP, Resend) -------------
-def send_email_resend(subject: str, text: str, html: str):
-    api_key = os.getenv("RESEND_API_KEY", "")
-    email_from = os.getenv("EMAIL_FROM", "onboarding@resend.dev")  # teszthez OK
-    email_to = os.getenv("ALERT_TO")
-    if not api_key or not email_to:
-        return False, "Missing RESEND_API_KEY or ALERT_TO"
-
-    try:
-        r = requests.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}",
-                     "Content-Type": "application/json"},
-            json={
-                "from": email_from,
-                "to": [email_to],
-                "subject": subject,
-                "text": text,
-                "html": html,
-            },
-            timeout=15,
-        )
-        if r.status_code in (200, 201):
-            return True, "sent"
-        return False, f"HTTP {r.status_code}: {r.text[:200]}"
-    except Exception as e:
-        return False, str(e)
-
-def email_test():
-    prefix = os.getenv("SUBJECT_PREFIX", "[HedgeFund]")
-    subject = f"{prefix} Email Test v0.4.2 (RESEND)"
-    text = "✅ Hedge Fund API v0.4.2 – HTTP email teszt (Resend)."
-    html = """<html><body style="font-family:monospace;background:#0f111a;color:#c8e1ff">
-      <h2>✅ Hedge Fund API v0.4.2 – Email Test (Resend)</h2>
-      <p><b>Status:</b> RUNNING 🟢<br><b>Layer:</b> CORE-ALERT / MAIL PIPELINE</p>
-    </body></html>"""
-    return send_email_resend(subject, text, html)
-
-# ------------- Endpoints -------------
 @app.get("/")
 def root():
     return {
         "greeting": "Hello, Hedge Fund!",
-        "message": "FastAPI fut v0.4.2 alatt – Email modul HTTP-n.",
-        "endpoints": {"health": "/health", "email_test": "/alerts/email_test"},
+        "message": "FastAPI fut v0.4.2 alatt — Email modul (Resend) aktív.",
+        "endpoints": {
+            "health": "/health",
+            "email_test": "/alerts/email_test",
+        },
     }
 
 @app.get("/health")
@@ -58,5 +22,21 @@ def health():
 
 @app.get("/alerts/email_test")
 def alerts_email_test():
-    ok, info = email_test()
-    return {"ok": bool(ok), "endpoint": "/alerts/email_test", "provider": "RESEND", "info": info}
+    subj_prefix = os.getenv("SUBJECT_PREFIX", "[HedgeFund]")
+    to_email = os.getenv("ALERT_TO", "")
+    subject = f"{subj_prefix} Email Test (Resend)"
+
+    html = """
+    <html>
+      <body style="font-family:monospace;background:#0f111a;color:#c8e1ff;">
+        <h2>✅ Hedge Fund – Email Test via Resend</h2>
+        <p><b>Status:</b> RUNNING 🟢<br>
+           <b>Layer:</b> CORE-ALERT / MAIL PIPELINE</p>
+        <hr>
+        <p style="font-size:12px;color:#888;">© Hedge Fund Core | v0.4.2</p>
+      </body>
+    </html>
+    """
+
+    ok, info = send_email_resend(to_email=to_email, subject=subject, html=html)
+    return {"ok": ok, "endpoint": "/alerts/email_test", "info": info[:300]}
