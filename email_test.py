@@ -39,5 +39,5 @@ with smtplib.SMTP(smtp_server, port) as server:
 server.starttls(context=context)
 server.login(sender_email, password)
 server.sendmail(msg["From"], receiver_email, msg.as_string())
-return True 
+return True  
 	
