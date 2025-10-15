@@ -62,3 +62,18 @@ from email_notifier import router as notifier_router
 
 app = FastAPI()
 app.include_router(notifier_router)
+
+# main.py  (csak a kiegészítések)
+from fastapi import FastAPI
+from email_notifier import send_email
+
+app = FastAPI()
+
+@app.get("/test-email")
+def test_email():
+    code, msg = send_email(
+        subject="Railway → Gmail webhook TESZT",
+        text="Ez egy teszt a /test-email végpontról.",
+        html="<b>Webhook teszt OK a Railway-ről</b>"
+    )
+    return {"status": code, "msg": msg}
