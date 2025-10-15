@@ -1,3 +1,8 @@
+from fastapi import FastAPI
+from email_notifier import router as notifier_router
+
+app = FastAPI()
+app.include_router(notifier_router)
 # main.py — Hedge Fund API v0.4.2 (Resend e-mail teszt)
 from fastapi import FastAPI
 from email_resend import send_email_resend
@@ -52,3 +57,8 @@ def debug_email_env():
         "MAIL_PROVIDER": os.getenv("MAIL_PROVIDER", "RESEND"),
         "httpx_installed": importlib.util.find_spec("httpx") is not None,
     } 
+    from fastapi import FastAPI
+from email_notifier import router as notifier_router
+
+app = FastAPI()
+app.include_router(notifier_router)
