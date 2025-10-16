@@ -1,28 +1,27 @@
 # email_brevo.py
-import os, requests
+import os, httpx
 
-BREVO_KEY = os.getenv("BREVO_API_KEY")
-ALERT_TO = os.getenv("ALERT_TO", "")
-SUBJ_PREFIX = os.getenv("SUBJECT_PREFIX", "HedgeFund")
+BREVO_API = "https://api.brevo.com/v3/smtp/email"
+API_KEY = os.getenv("BREVO_API_KEY", "")
+FROM_EMAIL = os.getenv("EMAIL_FROM", "")
+TO_EMAIL = os.getenv("ALERT_TO", "")
 
-BREVO_URL = "https://api.brevo.com/v3/smtp/email"
-HEADERS = {
-    "api-key": BREVO_KEY,
-    "accept": "application/json",
-    "content-type": "application/json",
-}
+def send_email(subject: str, text: str = "", html: str = ""):
+    if not API_KEY or not FROM_EMAIL or not TO_EMAIL:
+        return 400, "Hiányzó env: BREVO_API_KEY / EMAIL_FROM / ALERT_TO"
 
-def send_email(subject: str, text: str = "", html: str = "") -> tuple[int, str]:
     payload = {
-        "sender": {"name": "Hedge Fund Alerts", "email": "boss760000@gmail.com"},
-        "to": [{"email": ALERT_TO}],
-        "subject": f"{SUBJ_PREFIX} | {subject}",
+        "sender": {"email": FROM_EMAIL, "name": "Hedge Fund"},
+        "to": [{"email": TO_EMAIL}],
+        "subject": subject,
         "textContent": text or None,
         "htmlContent": html or None,
     }
-    r = requests.post(BREVO_URL, json=payload, headers=HEADERS, timeout=20)
+    headers = {"api-key": API_KEY, "accept": "application/json", "content-type": "application/json"}
+
     try:
-        data = r.json()
-    except Exception:
-        data = r.text
-    return r.status_code, str(data)[:400]
+        r = httpx.post(BREVO_API, json=payload, headers=headers, timeout=20)
+        ok = 200 <= r.status_code < 300
+        return (200 if ok else r.status_code), (r.text if not ok else "OK")
+    except Exception as e:
+        return 500, f"Brevo hiba: {e}"
