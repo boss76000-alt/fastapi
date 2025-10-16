@@ -20,6 +20,7 @@ def health():
         "status": "running",
         "MARKETAUX_API_KEY_present": bool(os.getenv("MARKETAUX_API_KEY")),
         "NOTIFIER_URL_present": bool(os.getenv("NOTIFIER_URL")),
+        "ALERT_TO_present": bool(os.getenv("ALERT_TO")),
     }
 
 @app.get("/test-email")
@@ -29,4 +30,4 @@ def test_email():
         text="Ez egy teszt a /test-email végpontról.",
         html="<b>Webhook teszt OK a Railway-ről</b>",
     )
-    return {"status": code, "msg": msg}
+    return {"status": code, "msg": msg[:300]}
