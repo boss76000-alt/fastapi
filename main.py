@@ -1,3 +1,10 @@
+from fastapi import FastAPI
+from email_notifier import router as notifier_router
+from system_status import router as status_router   # <<< ÚJ
+
+app = FastAPI()
+app.include_router(notifier_router)
+app.include_router(status_router)                   # <<< ÚJ
 # main.py — Hedge Fund webhook email teszt (Resend nélkül)
 from fastapi import FastAPI
 from email_notifier import send_email
