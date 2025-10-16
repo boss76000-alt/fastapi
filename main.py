@@ -1,33 +1,26 @@
-# main.py — Hedge Fund API (webhook → Gmail)
-
 from fastapi import FastAPI
-from email_notifier import send_email
-import os
+from email_brevo import send_email
 
 app = FastAPI(title="Hedge Fund API", version="1.0")
 
 @app.get("/")
 def root():
-    return {
-        "message": "Hedge Fund API aktív",
-        "status": "OK",
-        "endpoints": ["/health", "/test-email"],
-    }
+    return {"message": "Hedge Fund API aktív", "status": "OK", "endpoints": ["/health", "/test-email"]}
 
 @app.get("/health")
 def health():
+    import os
     return {
         "status": "running",
-        "MARKETAUX_API_KEY_present": bool(os.getenv("MARKETAUX_API_KEY")),
-        "NOTIFIER_URL_present": bool(os.getenv("NOTIFIER_URL")),
+        "BREVO_KEY_present": bool(os.getenv("BREVO_API_KEY")),
         "ALERT_TO_present": bool(os.getenv("ALERT_TO")),
     }
 
 @app.get("/test-email")
 def test_email():
     code, msg = send_email(
-        subject="Railway → Gmail webhook TESZT",
-        text="Ez egy teszt a /test-email végpontról.",
-        html="<b>Webhook teszt OK a Railway-ről</b>",
+        subject="Railway → Brevo TESZT",
+        text="Ez egy Brevo (Sendinblue) teszt a /test-email végpontról.",
+        html="<b>Brevo webhook teszt OK a Railway-ről</b>",
     )
-    return {"status": code, "msg": msg[:300]}
+    return {"status": code, "msg": msg}
