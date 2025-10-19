@@ -1,26 +1,16 @@
-from fastapi import FastAPI
-from email_brevo import send_email
+from telegram_notifier import send_telegram
 
-app = FastAPI(title="Hedge Fund API", version="1.0")
+@app.get("/test-telegram")
+def test_telegram():
+    res = send_telegram("Hedge Fund webhook ➜ Telegram test OK ✅")
+    return {"status": "sent", "message_id": res["message_id"]}
 
-@app.get("/")
-def root():
-    return {"message": "Hedge Fund API aktív", "status": "OK", "endpoints": ["/health", "/test-email"]}
-
+# (opcionális) health bővítés
 @app.get("/health")
 def health():
     import os
     return {
         "status": "running",
-        "BREVO_KEY_present": bool(os.getenv("BREVO_API_KEY")),
-        "ALERT_TO_present": bool(os.getenv("ALERT_TO")),
+        "TELEGRAM_BOT_TOKEN_present": bool(os.getenv("TELEGRAM_BOT_TOKEN")),
+        "TELEGRAM_CHAT_ID_present": bool(os.getenv("TELEGRAM_CHAT_ID")),
     }
-
-@app.get("/test-email")
-def test_email():
-    code, msg = send_email(
-        subject="Railway → Brevo TESZT",
-        text="Ez egy Brevo (Sendinblue) teszt a /test-email végpontról.",
-        html="<b>Brevo webhook teszt OK a Railway-ről</b>",
-    )
-    return {"status": code, "msg": msg}
