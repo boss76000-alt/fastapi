@@ -40,3 +40,21 @@ async def test_telegram():
     resp = await telegram_send("✅ Telegram kapcsolat OK – Hedge Fund API aktív!")
     ok = bool(resp.get("ok"))
     return {"ok": ok, "telegram_response": resp}
+    from fastapi import Query, HTTPException
+import os
+
+ALERT_TOKEN = os.getenv("ALERT_TOKEN", "")
+
+@app.get("/notify")
+async def notify(text: str = Query(..., min_length=1)):
+    resp = await telegram_send(text)
+    ok = bool(resp.get("ok"))
+    return {"ok": ok, "telegram_response": resp}
+
+@app.get("/notify-secure")
+async def notify_secure(text: str = Query(..., min_length=1), token: str = ""):
+    if not ALERT_TOKEN or token != ALERT_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    resp = await telegram_send(text)
+    ok = bool(resp.get("ok"))
+    return {"ok": ok, "telegram_response": resp}
