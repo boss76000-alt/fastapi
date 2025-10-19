@@ -1,31 +1,31 @@
+from fastapi import FastAPI
 import os
 import httpx
-from fastapi import FastAPI
 
-# Környezeti változók
+# ---- Környezeti változók ----
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# FastAPI app
+# ---- FastAPI app létrehozása ----
 app = FastAPI(title="Hedge Fund API", version="1.0")
 
-# --- Telegram küldő függvény ---
+# ---- Segédfüggvény Telegram küldéshez ----
 async def telegram_send(text: str) -> dict:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return {"ok": False, "error": "Missing TELEGRAM credentials"}
+        return {"ok": False, "error": "Hiányzó TELEGRAM token vagy chat_id"}
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
 
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(url, json=payload)
-    return r.json()
+        return r.json()
 
-# --- Endpontok ---
+# ---- Alap (health) végpont ----
 @app.get("/")
 def root():
     return {
-        "message": "Hedge Fund API aktív",
+        "message": "Hedge Fund API aktív ✅",
         "status": "OK",
         "endpoints": ["/health", "/test-telegram"]
     }
@@ -34,8 +34,9 @@ def root():
 def health():
     return {"status": "running"}
 
+# ---- Teszt üzenet küldés Telegramra ----
 @app.get("/test-telegram")
 async def test_telegram():
-    resp = await telegram_send("✅ Telegram teszt OK!")
+    resp = await telegram_send("✅ Telegram kapcsolat OK – Hedge Fund API aktív!")
     ok = bool(resp.get("ok"))
     return {"ok": ok, "telegram_response": resp}
