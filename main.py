@@ -31,3 +31,7 @@ def health():
 async def test_telegram():
     resp = await telegram_send("✅ Telegram kapcsolat OK — Hedge Fund API aktív!")
     return {"ok": bool(resp.get("ok")), "telegram_response": resp}
+    @app.get("/notify")
+async def notify(text: str):
+    resp = await telegram_send(f"📡 Manuális üzenet: {text}")
+    return {"ok": bool(resp.get("ok")), "telegram_response": resp}
