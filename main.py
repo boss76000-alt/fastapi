@@ -36,3 +36,17 @@ async def test_telegram():
 async def notify(text: str = Query(..., min_length=1)):
     resp = await telegram_send(text)
     return {"ok": bool(resp.get("ok")), "telegram_response": resp}
+    
+    # --- META ENDPOINTOK ---
+@app.get("/", tags=["meta"])
+async def home():
+    return {
+        "status": "running",
+        "telegram_bot": bool(TELEGRAM_BOT_TOKEN),
+        "chat_id_set": bool(TELEGRAM_CHAT_ID),
+    }
+
+@app.get("/health", tags=["meta"])
+async def health():
+    return {"ok": True}
+# --- /META ENDPOINTOK ---
