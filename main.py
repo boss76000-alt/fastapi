@@ -1,52 +1,45 @@
-from fastapi import FastAPI, Query
-import requests
+# main.py
 import os
+import requests
+from fastapi import FastAPI, Query
 
-app = FastAPI()
+app = FastAPI(title="Hedge Fund API")
 
-# 🔹 Telegram bot token és chat_id
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-# 🔹 Telegram üzenetküldő függvény
-async def telegram_send(message: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return {"ok": False, "error": "Missing bot token or chat id"}
+def send_telegram(text: str):
+    """Küld üzenetet a beállított chatre. Visszaadja (ok, response_json)."""
+    if not TELEGRAM_BOT_TOKEN:
+        return False, {"error": "Missing TELEGRAM_BOT_TOKEN"}
+    if not TELEGRAM_CHAT_ID:
+        return False, {"error": "Missing TELEGRAM_CHAT_ID"}
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
     try:
-        resp = requests.post(url, json=payload)
-        return resp.json()
+        r = requests.post(url, json=payload, timeout=15)
+        return r.ok, r.json()
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return False, {"error": str(e)}
 
-# 🔹 Alap ellenőrzés – futás
-@app.get("/")
-async def root():
-    return {"status": "running", "telegram_bot": bool(TELEGRAM_BOT_TOKEN), "chat_id_set": bool(TELEGRAM_CHAT_ID)}
+@app.get("/health")
+def health():
+    return {"ok": True}
 
-# 🔹 Teszt végpont
-@app.get("/test-telegram")
-async def test_telegram():
-    resp = await telegram_send("✅ Telegram kapcsolat OK — Hedge Fund API aktív!")
-    return {"ok": bool(resp.get("ok")), "telegram_response": resp}
-
-# 🔹 Fő értesítő végpont (ez az új!)
-@app.get("/notify")
-async def notify(text: str = Query(..., min_length=1)):
-    resp = await telegram_send(text)
-    return {"ok": bool(resp.get("ok")), "telegram_response": resp}
-    
-    # --- META ENDPOINTOK ---
-@app.get("/", tags=["meta"])
-async def home():
+@app.get("/status")
+def status():
     return {
         "status": "running",
         "telegram_bot": bool(TELEGRAM_BOT_TOKEN),
         "chat_id_set": bool(TELEGRAM_CHAT_ID),
     }
 
-@app.get("/health", tags=["meta"])
-async def health():
+@app.get("/running")
+def running():
     return {"ok": True}
-# --- /META ENDPOINTOK ---
+
+@app.get("/test-telegram")
+def test_telegram(text: str = Query("✅ Telegram kapcsolat OK — Hedge Fund API aktív!")):
+    ok, resp = send_telegram(text)
+    return {"ok": ok, "telegram_response": resp}
