@@ -3,8 +3,8 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}",
+    "startCommand": "python3 main.py",
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 180
+    "healthcheckTimeout": 100
   }
 }
