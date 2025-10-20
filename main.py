@@ -44,7 +44,7 @@ def test_telegram(text: str = Query("✅ Telegram kapcsolat OK — Hedge Fund AP
     ok, resp = send_telegram(text)
     return {"ok": ok, "telegram_response": resp}
     
-# --- Marketaux teszt endpoint (CSERE BLOKK KEZDETE) ---
+ --- Marketaux teszt endpoint (CSERE BLOKK KEZDETE) ---
 from fastapi import HTTPException
 import os, requests
 
