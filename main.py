@@ -44,16 +44,32 @@ def test_telegram(text: str = Query("✅ Telegram kapcsolat OK — Hedge Fund AP
     ok, resp = send_telegram(text)
     return {"ok": ok, "telegram_response": resp}
     
-    @app.get("/test-marketaux")
-def test_marketaux():
-    import os, requests
-    api_key = os.getenv("MARKETAUX_KEY")
-    if not api_key:
-        return {"error": "MARKETAUX_KEY not found"}
+# --- Marketaux teszt endpoint (CSERE BLOKK KEZDETE) ---
+from fastapi import HTTPException
+import os, requests
 
-    url = f"https://api.marketaux.com/v1/news/all?filter_entities=true&language=en&limit=1&api_token={api_key}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return {"ok": True, "marketaux_status": "connected", "sample_data": response.json().get("data", [])[0]}
-    else:
-        return {"ok": False, "status_code": response.status_code, "text": response.text}
+@app.get("/test-marketaux")
+def test_marketaux():
+    api_key = os.getenv("MARKETAUX_API_KEY")
+    if not api_key:
+        return {"ok": False, "error": "MARKETAUX_API_KEY missing"}
+
+    url = "https://api.marketaux.com/v1/news/all"
+    params = {
+        "api_token": api_key,
+        "limit": 1,
+        "published_after": "2024-01-01T00:00:00Z"
+    }
+
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return {
+            "ok": True,
+            "status_code": r.status_code,
+            "sample": (data.get("data") or [])[:1]
+        }
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Marketaux request failed: {e}")
+# --- Marketaux teszt endpoint (CSERE BLOKK VÉGE) ---
