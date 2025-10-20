@@ -100,3 +100,79 @@ if __name__ == "__main__":
     # Railway PORT-ot használunk, különben 8000
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    
+    from typing import Optional, List
+from fastapi import Query
+
+@app.get("/news/headlines", summary="Marketaux hírek (angol, formázott)")
+async def news_headlines(
+    limit: int = Query(5, ge=1, le=20),
+    symbols: Optional[str] = Query(None, description="Pl.: AAPL,MSFT,TSLA"),
+    search: Optional[str] = Query(None, description="Pl.: earnings OR guidance"),
+    hours: int = Query(24, ge=1, le=72, description="Mióta visszafelé nézzünk (óra)"),
+    min_relevance: float = Query(0.0, ge=0.0, le=1.0),
+    notify: bool = Query(False, description="Küldjön-e Telegram értesítést")
+):
+    token = os.getenv("MARKETAUX_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500, detail="MARKETAUX_API_TOKEN hiányzik")
+
+    # published_after ISO idő (UTC)
+    since = datetime.utcnow() - timedelta(hours=hours)
+    published_after = since.replace(microsecond=0).isoformat() + "Z"
+
+    params = {
+        "api_token": token,
+        "language": "en",
+        "limit": str(limit),
+        "published_after": published_after,
+        "filter_entities": "true",
+    }
+
+    if symbols:
+        # Marketaux vesszővel elválasztott listát vár
+        params["symbols"] = symbols.replace(" ", "")
+    if search:
+        params["search"] = search
+    # relevance score 0..1 skála – ha >0, akkor beállítjuk
+    if min_relevance > 0:
+        params["relevance_score.gte"] = str(min_relevance)
+
+    url = "https://api.marketaux.com/v1/news/all"
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(url, params=params)
+            if r.status_code == 401:
+                return {"detail": "marketaux_error", "error": {"code": "invalid_api_token", "message": "Érvénytelen API token."}}
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Marketaux kérés hiba: {str(e)}")
+
+    # Átalakítjuk rövid, tiszta listává
+    items = []
+    for it in data.get("data", [])[:limit]:
+        items.append({
+            "title": it.get("title"),
+            "source": it.get("source"),
+            "published_at": it.get("published_at"),
+            "url": it.get("url"),
+            "language": it.get("language"),
+        })
+
+    # Opcionális Telegram értesítés (max 3 cikk, hogy ne spam-eljen)
+    if notify and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+        lines = []
+        for art in items[:3]:
+            lines.append(f"• {art['title']} ({art['source']})\n{art['url']}")
+        text = "📰 Friss hírek (Marketaux):\n" + "\n\n".join(lines) if lines else "Nincs friss angol hír."
+        try:
+            await send_telegram_message(text)
+        except Exception as e:
+            # Nem dobjuk el a választ, csak jelezzük
+            return {"items": items, "telegram": {"sent": False, "error": str(e)}}
+
+        return {"items": items, "telegram": {"sent": True}}
+
+    return {"items": items}
