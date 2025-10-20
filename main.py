@@ -69,57 +69,54 @@ def test_telegram(msg: Optional[str] = Query(default="✅ Telegram kapcsolat OK 
     ok = bool(resp.get("ok"))
     return {"ok": ok, "telegram_response": resp}
 
-# --- Marketaux teszt ---
-@app.get("/test-marketaux")
-def test_marketaux(
-    limit: int = Query(default=1, ge=1, le=5),
-    language: str = Query(default="en"),
-):
-    """
-    Egyszerű Marketaux próbahívás. A /news/all végpontot hívja meg minimális,
-    minden csomagra érvényes paraméterekkel (limit, language).
-    """
-    if not MARKETAUX_API_KEY:
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "detail": "MARKETAUX_API_KEY nincs beállítva."},
-        )
+# --- Marketaux teszt endpoint (CSERE BLOKK KEZDETE) ---
+from datetime import datetime, timedelta
+import os, requests
+from fastapi import HTTPException
+
+@app.get("/test_marketaux")
+def test_marketaux():
+    api_key = os.getenv("MARKETAUX_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Missing MARKETAUX_API_KEY")
+
+    symbols = os.getenv("NEWS_SYMBOLS", "AAPL,MSFT")
+    keywords = os.getenv("NEWS_KEYWORDS", "").strip()
+    since_days = int(os.getenv("NEWS_SINCE_DAYS", "7"))
+
+    published_after = (datetime.utcnow() - timedelta(days=since_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     url = "https://api.marketaux.com/v1/news/all"
     params = {
-        "api_token": MARKETAUX_API_KEY,
-        "limit": limit,
-        "language": language,
-        # Szándékosan NINCS published_after (sok csomagnál 30 napos limitet dob 400-zal)
+        "api_token": api_key,
+        "symbols": symbols,
+        "language": "en",
+        "limit": 5,
+        "published_after": published_after,
+        "filter_entities": "true",
     }
+    if keywords:
+        params["search"] = keywords
 
     try:
-        r = requests.get(url, params=params, timeout=20)
-        if r.status_code != 200:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "ok": False,
-                    "detail": f"Marketaux request failed: {r.status_code}",
-                    "url": r.url,
-                    "body": r.text[:500],
-                },
-            )
-        data = r.json()
-        count = len(data.get("data", [])) if isinstance(data, dict) else None
-        return {"ok": True, "count": count, "sample": (data.get("data", [])[:1] if isinstance(data, dict) else None)}
+        resp = requests.get(url, params=params, timeout=20)
+        resp.raise_for_status()
+        payload = resp.json()
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=resp.status_code, detail=f"Marketaux request failed: {e}")
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"ok": False, "detail": f"Marketaux exception: {str(e)}"},
-        )
+        raise HTTPException(status_code=500, detail=f"Marketaux request error: {e}")
 
-# --- Gyökér: opcionálisan visszaadjuk az elérhető végpontokat ---
-@app.get("/")
-def root():
-    return {
-        "message": "Hedge Fund API aktív",
-        "status": "OK",
-        "endpoints": ["/health", "/status", "/running", "/test-telegram", "/test-marketaux"],
-        "server_time": datetime.utcnow().isoformat() + "Z",
-    }
+    # ---- Domain-szűrés (blacklist) ----
+    raw_items = payload.get("data") or payload.get("sample") or []
+    bl = [d.strip().lower() for d in os.getenv("NEWS_SOURCES_BLACKLIST", "").split(",") if d.strip()]
+    def is_blocked(item):
+        src = (item.get("source") or "").lower()
+        url_ = (item.get("url") or "").lower()
+        return any(bad in src or bad in url_ for bad in bl)
+
+    filtered = [it for it in raw_items if not is_blocked(it)]
+    sample = filtered[:1]  # 1 cikket mutatunk mintának
+
+    return {"ok": True, "count": len(filtered), "sample": sample}
+# --- Marketaux teszt endpoint (CSERE BLOKK VÉGE) ---
