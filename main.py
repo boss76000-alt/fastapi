@@ -69,6 +69,7 @@ def test_telegram(msg: Optional[str] = Query(default="✅ Telegram kapcsolat OK 
     ok = bool(resp.get("ok"))
     return {"ok": ok, "telegram_response": resp}
     
+        
 # --- Marketaux teszt endpoint (CSERE BLOKK KEZDETE) ---
 from datetime import datetime, timedelta
 import os
