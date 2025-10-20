@@ -69,10 +69,10 @@ def test_telegram(msg: Optional[str] = Query(default="✅ Telegram kapcsolat OK 
     ok = bool(resp.get("ok"))
     return {"ok": ok, "telegram_response": resp}
     
-    
 # --- Marketaux teszt endpoint (CSERE BLOKK KEZDETE) ---
 from datetime import datetime, timedelta
-import os, requests
+import os
+import requests
 from fastapi import HTTPException
 
 @app.get("/test_marketaux")
@@ -84,6 +84,10 @@ def test_marketaux():
     symbols = os.getenv("NEWS_SYMBOLS", "AAPL,MSFT")
     keywords = os.getenv("NEWS_KEYWORDS", "").strip()
     since_days = int(os.getenv("NEWS_SINCE_DAYS", "7"))
+
+    # vesszők szóközre cserélése, hogy az API elfogadja
+    if "," in keywords:
+        keywords = keywords.replace(",", " ")
 
     published_after = (datetime.utcnow() - timedelta(days=since_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -108,16 +112,14 @@ def test_marketaux():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Marketaux request error: {e}")
 
-    # ---- Domain-szűrés (blacklist) ----
-    raw_items = payload.get("data") or payload.get("sample") or []
-    bl = [d.strip().lower() for d in os.getenv("NEWS_SOURCES_BLACKLIST", "").split(",") if d.strip()]
-    def is_blocked(item):
-        src = (item.get("source") or "").lower()
-        url_ = (item.get("url") or "").lower()
-        return any(bad in src or bad in url_ for bad in bl)
+    # --- domain blacklist ---
+    items = payload.get("data") or payload.get("sample") or []
+    blacklist = [d.strip().lower() for d in os.getenv("NEWS_SOURCES_BLACKLIST", "").split(",") if d.strip()]
+    def blocked(it):
+        src = (it.get("source") or "").lower()
+        url_ = (it.get("url") or "").lower()
+        return any(b in src or b in url_ for b in blacklist)
 
-    filtered = [it for it in raw_items if not is_blocked(it)]
-    sample = filtered[:1]  # 1 cikket mutatunk mintának
-
-    return {"ok": True, "count": len(filtered), "sample": sample}
+    filtered = [it for it in items if not blocked(it)]
+    return {"ok": True, "count": len(filtered), "sample": (filtered[:1] if filtered else [])}
 # --- Marketaux teszt endpoint (CSERE BLOKK VÉGE) ---
