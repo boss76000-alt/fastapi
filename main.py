@@ -92,7 +92,7 @@ def test_marketaux():
 
     published_after = (datetime.utcnow() - timedelta(days=since_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    url = "https://api.marketaux.com/v1/news/all"
+    url = "https://api.marketaux.com/v1/news"
     params = {
         "api_token": api_key,
         "symbols": symbols,
