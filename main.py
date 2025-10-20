@@ -1,22 +1,13 @@
-import os
 from fastapi import FastAPI
+import os
 
-app = FastAPI(title="Hedge Fund API", version="0.1.0")
+app = FastAPI()
 
 @app.get("/health")
 def health():
-    return {"ok": True, "status": "running"}
+    return {"ok": True}
 
-@app.get("/status")
-def status():
-    return {
-        "status": "running",
-        "telegram_bot": bool(os.getenv("TELEGRAM_BOT_TOKEN")),
-        "chat_id_set": bool(os.getenv("TELEGRAM_CHAT_ID")),
-        "marketaux_key": bool(os.getenv("MARKETAUX_API_TOKEN")),
-    }
-
-# Opcionális: egy nagyon egyszerű teszt-endpoint, ami NEM hív külső API-t
-@app.get("/test")
-def test():
-    return {"ok": True, "msg": "API alive"}
+# --- opcionális: egyszerű teszt endpoint ---
+@app.get("/")
+def root():
+    return {"ok": True, "service": "hedge-fund-core"}
