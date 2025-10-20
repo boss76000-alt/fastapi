@@ -43,3 +43,17 @@ def running():
 def test_telegram(text: str = Query("✅ Telegram kapcsolat OK — Hedge Fund API aktív!")):
     ok, resp = send_telegram(text)
     return {"ok": ok, "telegram_response": resp}
+    
+    @app.get("/test-marketaux")
+def test_marketaux():
+    import os, requests
+    api_key = os.getenv("MARKETAUX_KEY")
+    if not api_key:
+        return {"error": "MARKETAUX_KEY not found"}
+
+    url = f"https://api.marketaux.com/v1/news/all?filter_entities=true&language=en&limit=1&api_token={api_key}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return {"ok": True, "marketaux_status": "connected", "sample_data": response.json().get("data", [])[0]}
+    else:
+        return {"ok": False, "status_code": response.status_code, "text": response.text}
