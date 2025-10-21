@@ -1,54 +1,93 @@
-import os, requests
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI
+import os, datetime as dt
+import httpx
 
 app = FastAPI(title="Hedge Fund – minimal")
 
-MARKETAUX_TOKEN = os.getenv("MARKETAUX_API_TOKEN")
-TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TG_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# --- helpers -------------------------------------------------
+def getenv(name: str, default: str | None = None) -> str | None:
+    v = os.environ.get(name, default)
+    return v.strip() if isinstance(v, str) else v
 
-def fetch_marketaux(query: str | None, language: str, limit: int):
-    if not MARKETAUX_TOKEN:
-        raise HTTPException(status_code=500, detail="MARKETAUX_API_TOKEN missing")
+async def send_telegram(text: str) -> bool:
+    token = getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+    timeout = httpx.Timeout(10.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as cli:
+        r = await cli.post(url, json=payload)
+        return r.status_code == 200
 
-    url = "https://api.marketaux.com/v1/news/all"
+async def fetch_marketaux(limit: int) -> dict:
+    base = "https://api.marketaux.com/v1/news/all"
+    token = getenv("MARKETAUX_API_TOKEN")
+    symbols = getenv("NEWS_SYMBOLS", "")
+    search = getenv("NEWS_SEARCH", "")
+    language = getenv("NEWS_LANGUAGE", "en")
+    since = getenv("NEWS_SINCE", "24h")  # pl. 24h, 7d, 2025-10-01
+
+    if not token:
+        return {"detail": {"marketaux_error": {"code": "missing_token", "message": "MARKETAUX_API_TOKEN is empty"}}}
+
+    # published_after: ha relatív értéket adtál meg (pl. 24h), konvertáljuk ISO időbélyegre
+    def since_to_iso(v: str) -> str | None:
+        try:
+            v = v.strip().lower()
+            if v.endswith("h"):
+                hours = int(v[:-1])
+                t = dt.datetime.utcnow() - dt.timedelta(hours=hours)
+                return t.replace(microsecond=0).isoformat() + "Z"
+            if v.endswith("d"):
+                days = int(v[:-1])
+                t = dt.datetime.utcnow() - dt.timedelta(days=days)
+                return t.replace(microsecond=0).isoformat() + "Z"
+            # ha konkrét dátum/idő jön, hagyjuk a felhasználóra
+            return v
+        except Exception:
+            return None
+
     params = {
-        "api_token": MARKETAUX_TOKEN,
-        "limit": max(1, min(limit, 5)),   # óvatos limit
-        "language": language or "en",
+        "api_token": token,
+        "limit": str(max(1, min(limit, 5))),  # biztonságból 1..5
+        "language": language,
+        "filter_entities": "true",
     }
-    if query:
-        params["query"] = query
 
-    r = requests.get(url, params=params, timeout=10)
-    if r.status_code == 401:
-        raise HTTPException(status_code=401, detail={"marketaux_error": r.json()})
-    if r.status_code >= 400:
-        raise HTTPException(status_code=502, detail={"marketaux_error": r.text})
+    pa = since_to_iso(since)
+    if pa:
+        params["published_after"] = pa
+    if symbols:
+        params["symbols"] = symbols
+    if search:
+        params["search"] = search
 
-    data = r.json()
-    items = []
-    for it in (data.get("data") or [])[:limit]:
-        items.append({
-            "title": it.get("title"),
-            "source": it.get("source"),
-            "published_at": it.get("published_at"),
-            "url": it.get("url"),
-        })
-    return {"count": len(items), "items": items}
+    timeout = httpx.Timeout(15.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as cli:
+        r = await cli.get(base, params=params)
+        try:
+            data = r.json()
+        except Exception:
+            data = {"status_code": r.status_code, "text": r.text}
 
-def send_telegram(text: str) -> None:
-    if not (TG_TOKEN and TG_CHAT_ID):
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            json={"chat_id": TG_CHAT_ID, "text": text, "disable_web_page_preview": True},
-            timeout=10,
-        )
-    except Exception:
-        pass
+    # Marketaux hiba átadása (pl. invalid_api_token)
+    if isinstance(data, dict) and "error" in data:
+        return {"detail": {"marketaux_error": data["error"]}}
+    return data
 
+def format_items_to_message(items: list[dict]) -> str:
+    lines = []
+    for it in items[:3]:  # max 3 üzenetben
+        title = it.get("title", "").strip()
+        src = it.get("source", "")
+        url = it.get("url", "")
+        when = it.get("published_at", "")[:19].replace("T", " ")
+        lines.append(f"• {title}\n  ({src} • {when})\n  {url}")
+    return "🗞  Latest headlines:\n" + "\n\n".join(lines)
+
+# --- minimal endpoints --------------------------------------
 @app.get("/")
 def root():
     return {"ok": True}
@@ -61,22 +100,42 @@ def health():
 def status():
     return {
         "status": "running",
-        "telegram_bot": bool(TG_TOKEN),
-        "chat_id_set": bool(TG_CHAT_ID),
-        "marketaux_key": bool(MARKETAUX_TOKEN),
+        "telegram_bot": bool(getenv("TELEGRAM_BOT_TOKEN")),
+        "chat_id_set": bool(getenv("TELEGRAM_CHAT_ID")),
+        "marketaux_key": bool(getenv("MARKETAUX_API_TOKEN")),
     }
 
-@app.get("/news/search")
-def news_search(
-    q: str | None = Query(default=None, description="Kulcsszó pl. AAPL OR NVDA"),
-    language: str = Query(default="en", pattern="^[a-z]{2}$"),
-    limit: int = Query(default=2, ge=1, le=5),
-    send: bool = Query(default=False, description="Ha true, Telegramra is megy összefoglaló"),
-):
-    result = fetch_marketaux(q, language, limit)
-    if send and result["count"] > 0:
-        lines = [f"Top hírek ({language}, {result['count']} db):"]
-        for i, it in enumerate(result["items"], start=1):
-            lines.append(f"{i}. {it['title']} — {it['source']}\n{it['url']}")
-        send_telegram("\n\n".join(lines))
-    return result
+@app.post("/test/telegram")
+async def test_telegram():
+    ok = await send_telegram("✅ Telegram test OK")
+    return {"ok": ok}
+
+# --- NEW: /news/auto ----------------------------------------
+@app.get("/news/auto")
+async def news_auto(limit: int = 1):
+    """
+    Egyszerű automata Marketaux hírlehívás az env változókkal.
+    limit: 1..5 (alap:1)
+    """
+    data = await fetch_marketaux(limit)
+    # ha hiba objektum
+    if isinstance(data, dict) and "detail" in data and "marketaux_error" in data["detail"]:
+        return data
+
+    items = []
+    # a Marketaux válasz szerkezete: {"data":[...]} vagy {"count":..,"items":[...]}
+    if isinstance(data, dict):
+        items = data.get("data") or data.get("items") or []
+    if not items:
+        return {"count": 0, "items": []}
+
+    text = format_items_to_message(items)
+    await send_telegram(text)
+    # Visszaadjuk a kivonatot HTTP-ben is
+    return {
+        "count": len(items),
+        "items": [
+            {"title": it.get("title"), "source": it.get("source"), "published_at": it.get("published_at"), "url": it.get("url")}
+            for it in items
+        ],
+    }
